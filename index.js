@@ -400,7 +400,7 @@ export function apply(ctx) {
     description: 'Generates zero-token handoff brief (.dsh/tasks/task_XX_brief.md) for worker sub-agent, injecting L0 (C1-C5) and assigned L2 Skill.',
     parameters: {
       task_id: { type: 'string', required: true, description: 'Task identifier, e.g. TASK-01' },
-      assigned_role: { type: 'string', required: true, description: 'Assigned skill name (e.g. curator, auditor, quiz_master, mckinsey-structured)' },
+      assigned_role: { type: 'string', required: true, description: 'Assigned skill name (e.g. curator, auditor, quiz-master, mckinsey-structured)' },
       objective: { type: 'string', required: true, description: 'Clear goal and acceptance criteria for the task' },
       input_files: { type: 'array', required: false, description: 'Array of disk input filepaths authorized for worker agent' },
       output_file: { type: 'string', required: true, description: 'Target Markdown file to write result to' },

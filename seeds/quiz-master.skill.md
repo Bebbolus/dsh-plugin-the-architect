@@ -1,5 +1,5 @@
 ---
-name: quiz_master
+name: quiz-master
 description: Instructional designer and active recall engineer. Converts dense knowledge into Obsidian Spaced Repetition flashcards.
 ---
 
