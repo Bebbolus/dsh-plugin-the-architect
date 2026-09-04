@@ -431,7 +431,16 @@ ${skillContent}
       render: (v) => JSON.stringify(v, null, 2)
     },
     execute: async (args) => {
-      const containerName = `dsh_runner_${args.runner.toLowerCase()}`;
+      const runnerKey = args.runner.toLowerCase();
+      const containerName = `dsh_runner_${runnerKey}`;
+
+      // Immagini per fallback effimero
+      const runnerImages = {
+        go: 'golang:1.24-alpine',
+        rust: 'rust:1.85-slim',
+        python: 'python:3.12-slim',
+        expo: 'node:22-alpine'
+      };
 
       // Verifica presenza socket Docker
       try {
@@ -444,34 +453,87 @@ ${skillContent}
       }
 
       try {
-        // 1. Crea Exec Instance
-        const execConfig = {
-          AttachStdout: true,
-          AttachStderr: true,
-          Tty: false,
-          Cmd: args.cmd,
-          ...(args.working_dir ? { WorkingDir: args.working_dir } : {})
-        };
+        // 1. Verifica se il container preconfigurato esiste e se è avviato
+        const inspectRes = await dockerSocketRequest('GET', `/containers/${containerName}/json`);
+        const containerExists = inspectRes.status === 200;
+        let startedOnDemand = false;
 
-        const createRes = await dockerSocketRequest('POST', `/containers/${containerName}/exec`, execConfig);
-        if (createRes.status !== 201 || !createRes.data.Id) {
-          throw new Error(`Impossibile avviare exec in ${containerName}: ${JSON.stringify(createRes.data)}`);
+        if (containerExists) {
+          const isRunning = inspectRes.data && inspectRes.data.State && inspectRes.data.State.Running;
+          if (!isRunning) {
+            // Avvio on-demand del container spento
+            await dockerSocketRequest('POST', `/containers/${containerName}/start`);
+            startedOnDemand = true;
+          }
+
+          // 2. Crea ed esegui Exec Instance
+          const execConfig = {
+            AttachStdout: true,
+            AttachStderr: true,
+            Tty: false,
+            Cmd: args.cmd,
+            ...(args.working_dir ? { WorkingDir: args.working_dir } : {})
+          };
+
+          const createRes = await dockerSocketRequest('POST', `/containers/${containerName}/exec`, execConfig);
+          if (createRes.status !== 201 || !createRes.data.Id) {
+            throw new Error(`Impossibile creare exec in ${containerName}: ${JSON.stringify(createRes.data)}`);
+          }
+
+          const execId = createRes.data.Id;
+          const startRes = await dockerSocketRequest('POST', `/exec/${execId}/start`, { Detach: false, Tty: false });
+
+          // 3. Verifica ExitCode
+          const execInspect = await dockerSocketRequest('GET', `/exec/${execId}/json`);
+          const exitCode = execInspect.data.ExitCode !== undefined ? execInspect.data.ExitCode : 0;
+
+          // 4. Se è stato avviato on-demand, arrestalo subito per azzerare l'impronta di RAM
+          if (startedOnDemand) {
+            await dockerSocketRequest('POST', `/containers/${containerName}/stop`).catch(() => {});
+          }
+
+          return {
+            container: containerName,
+            mode: startedOnDemand ? 'ON_DEMAND_LIFECYCLE' : 'EXISTING_RUNNING',
+            exit_code: exitCode,
+            output: typeof startRes.data === 'string' ? startRes.data : JSON.stringify(startRes.data)
+          };
+        } else {
+          // Nessun container preconfigurato: esecuzione effimera (docker run --rm)
+          const image = runnerImages[runnerKey] || 'alpine:latest';
+          const ephemeralName = `dsh_ephemeral_${runnerKey}_${Date.now()}`;
+
+          const createEphemeral = await dockerSocketRequest('POST', `/containers/create?name=${ephemeralName}`, {
+            Image: image,
+            Cmd: args.cmd,
+            WorkingDir: args.working_dir || '/workspace',
+            HostConfig: {
+              AutoRemove: true,
+              Binds: [`/workspace/apps:/workspace/apps:rw`]
+            }
+          });
+
+          if (createEphemeral.status !== 201) {
+            throw new Error(`Creazione container effimero fallita: ${JSON.stringify(createEphemeral.data)}`);
+          }
+
+          const ephemeralId = createEphemeral.data.Id;
+          await dockerSocketRequest('POST', `/containers/${ephemeralId}/start`);
+
+          // Attende completamento
+          const waitRes = await dockerSocketRequest('POST', `/containers/${ephemeralId}/wait`);
+          const exitCode = waitRes.data.StatusCode || 0;
+
+          // Recupera output logs
+          const logsRes = await dockerSocketRequest('GET', `/containers/${ephemeralId}/logs?stdout=true&stderr=true`);
+
+          return {
+            container: ephemeralName,
+            mode: 'EPHEMERAL_AUTO_REMOVED',
+            exit_code: exitCode,
+            output: typeof logsRes.data === 'string' ? logsRes.data : JSON.stringify(logsRes.data)
+          };
         }
-
-        const execId = createRes.data.Id;
-
-        // 2. Start Exec Instance
-        const startRes = await dockerSocketRequest('POST', `/exec/${execId}/start`, { Detach: false, Tty: false });
-
-        // 3. Inspect Exec Instance per ExitCode
-        const inspectRes = await dockerSocketRequest('GET', `/exec/${execId}/json`);
-        const exitCode = inspectRes.data.ExitCode !== undefined ? inspectRes.data.ExitCode : 0;
-
-        return {
-          container: containerName,
-          exit_code: exitCode,
-          output: typeof startRes.data === 'string' ? startRes.data : JSON.stringify(startRes.data)
-        };
       } catch (err) {
         return {
           container: containerName,
