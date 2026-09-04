@@ -166,7 +166,7 @@ function evaluateTriviality(prompt) {
  * scrive sia il Markdown completo (.dsh/tasks/00_master_plan.md)
  * sia il formato JSON consumato direttamente dalla Plan Sidebar (.dsh/tasks/plan.json).
  */
-async function syncPlanState({ plan_id, title, description, status, tasks, markdown_plan }) {
+async function syncPlanState({ session_id, plan_id, title, description, status, tasks, markdown_plan }) {
   await fs.mkdir(TASKS_DIR, { recursive: true });
 
   const formattedTasks = (tasks || []).map((t, idx) => {
@@ -209,6 +209,11 @@ async function syncPlanState({ plan_id, title, description, status, tasks, markd
     ].join('\n');
   }
 
+  if (session_id) {
+    const plansDir = path.join(TASKS_DIR, 'plans');
+    await fs.mkdir(plansDir, { recursive: true });
+    await fs.writeFile(path.join(plansDir, `${session_id}_master_plan.md`), mdContent, 'utf8');
+  }
   await fs.writeFile(MASTER_PLAN_MD, mdContent, 'utf8');
 
   const payload = {
@@ -220,6 +225,11 @@ async function syncPlanState({ plan_id, title, description, status, tasks, markd
     tasks: formattedTasks
   };
 
+  if (session_id) {
+    const plansDir = path.join(TASKS_DIR, 'plans');
+    await fs.mkdir(plansDir, { recursive: true });
+    await fs.writeFile(path.join(plansDir, `${session_id}.json`), JSON.stringify(payload, null, 2), 'utf8');
+  }
   await fs.writeFile(PLAN_JSON, JSON.stringify(payload, null, 2), 'utf8');
   return { payload, formattedTasks, mdContent };
 }
@@ -292,6 +302,7 @@ export function apply(ctx) {
     name: 'architect_create_plan',
     description: 'MANDATORY: Crea e salva il Master Plan formale (.dsh/tasks/00_master_plan.md) e aggiorna in tempo reale la Plan Sidebar (.dsh/tasks/plan.json) con le schede dei task, i ruoli assegnati e i deliverable. DEVE essere invocato ogni volta che l\'utente richiede la pianificazione di un workflow, architettura o progetto, o quando viene usato il comando /architect.',
     parameters: {
+      session_id: { type: 'string', required: false, description: 'Optional session identifier for per-session plan scoping' },
       plan_id: { type: 'string', required: true, description: 'Unique plan ID (e.g. "PLAN-01")' },
       title: { type: 'string', required: true, description: 'Descriptive title of workflow or project' },
       description: { type: 'string', required: false, description: 'Sintesi dell\'obiettivo del piano' },
@@ -323,6 +334,7 @@ export function apply(ctx) {
     },
     execute: async (args) => {
       const { payload, formattedTasks } = await syncPlanState({
+        session_id: args.session_id,
         plan_id: args.plan_id,
         title: args.title,
         description: args.description,
@@ -338,6 +350,42 @@ export function apply(ctx) {
         plan_json: PLAN_JSON,
         tasks_count: formattedTasks.length,
         message: 'Master Plan saved to disk (.dsh/tasks/00_master_plan.md) and Plan Sidebar (.dsh/tasks/plan.json) synchronized successfully.'
+      };
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // TOOL 1B: architect_clear_plan (Clear / Reset Active Operational Plan)
+  // --------------------------------------------------------------------------
+  ctx.tools.register({
+    name: 'architect_clear_plan',
+    description: 'Cancella o resetta il piano operativo attuale e ripulisce la dashboard di pianificazione (Plan Sidebar). Invocare quando l\'utente chiede di cancellare, annullare o resettare il piano.',
+    parameters: {
+      session_id: { type: 'string', required: false, description: 'Optional session ID to clear session-specific plan.' },
+      all: { type: 'boolean', required: false, description: 'Se true, rimuove sia il piano di sessione che il piano globale' }
+    },
+    output: {
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          message: { type: 'string' }
+        }
+      },
+      render: (v) => JSON.stringify(v, null, 2)
+    },
+    execute: async (args) => {
+      if (args?.session_id) {
+        try { await fs.unlink(path.join(TASKS_DIR, 'plans', `${args.session_id}.json`)); } catch {}
+        try { await fs.unlink(path.join(TASKS_DIR, 'plans', `${args.session_id}_master_plan.md`)); } catch {}
+      }
+      if (!args?.session_id || args?.all) {
+        try { await fs.unlink(PLAN_JSON); } catch {}
+        try { await fs.unlink(MASTER_PLAN_MD); } catch {}
+      }
+      return {
+        success: true,
+        message: 'Piano operativo cancellato con successo. La dashboard Plan Sidebar è stata azzerata.'
       };
     }
   });
