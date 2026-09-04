@@ -10,11 +10,14 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
+import { createUserMessage } from '@deepseek-ai/dsh-llm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || '/workspace';
 const TASKS_DIR = path.join(WORKSPACE_DIR, '.dsh', 'tasks');
+const PLAN_JSON = path.join(TASKS_DIR, 'plan.json');
+const MASTER_PLAN_MD = path.join(TASKS_DIR, '00_master_plan.md');
 const SKILLS_DIR = path.join(WORKSPACE_DIR, '.dsh', 'skills');
 const SEEDS_DIR = path.join(__dirname, 'seeds');
 const CONFIG_FILE = path.join(WORKSPACE_DIR, '.dsh', 'capabilities.json');
@@ -114,6 +117,21 @@ function evaluateTriviality(prompt) {
   if (!prompt || typeof prompt !== 'string') return { isTrivial: true, reason: 'Empty prompt' };
   
   const p = prompt.toLowerCase();
+
+  // Parole chiave obbligatorie che forzano SEMPRE il percorso The Architect
+  const architectKeywords = [
+    '/architect', 'architect', 'architettura', 'workflow', 'pianifica', 'pianificazione',
+    'pipeline', 'progetto', 'task', 'piano', 'organizza', 'automazione', 'monitoraggio'
+  ];
+  for (const akw of architectKeywords) {
+    if (p.includes(akw)) {
+      return {
+        isTrivial: false,
+        reason: `Rilevata intenzione strutturata / The Architect ('${akw}'). Richiede Master Plan e Plan Sidebar.`
+      };
+    }
+  }
+
   const trivialKeywords = [
     'ricetta', 'tortellini', 'pasta', 'cucinare', 'meteo', 'ciao', 'buongiorno',
     'chi sei', 'come stai', 'traduci', 'spiegami in 2 righe', 'che ore sono',
@@ -141,6 +159,69 @@ function evaluateTriviality(prompt) {
     isTrivial: false,
     reason: 'Richiesta multi-fase o complessa. Richiede Triage e Master Plan.'
   };
+}
+
+/**
+ * Sincronizza lo stato del piano universale:
+ * scrive sia il Markdown completo (.dsh/tasks/00_master_plan.md)
+ * sia il formato JSON consumato direttamente dalla Plan Sidebar (.dsh/tasks/plan.json).
+ */
+async function syncPlanState({ plan_id, title, description, status, tasks, markdown_plan }) {
+  await fs.mkdir(TASKS_DIR, { recursive: true });
+
+  const formattedTasks = (tasks || []).map((t, idx) => {
+    const taskId = t.id || `TASK-${String(idx + 1).padStart(2, '0')}`;
+    return {
+      id: taskId,
+      title: t.title || `Fase ${idx + 1}`,
+      description: t.description || '',
+      status: t.status || 'PENDING',
+      assigned_role: t.assigned_role || 'curator',
+      runner: t.runner || 'native',
+      deliverable_file: t.deliverable_file || `.dsh/tasks/task_${String(idx + 1).padStart(2, '0')}_result.md`,
+      preview_content: t.preview_content || null,
+      error_message: t.error_message || null
+    };
+  });
+
+  const pid = plan_id || 'PLAN-01';
+  const planTitle = title || 'Piano Operativo The Architect';
+  const planDesc = description || '';
+  const planStatus = status || 'PENDING_APPROVAL';
+
+  let mdContent = markdown_plan;
+  if (!mdContent) {
+    mdContent = [
+      `# 🏛️ Master Plan: ${pid} - ${planTitle}`,
+      ``,
+      `> **Status:** ${planStatus} | **Aggiornato:** ${new Date().toISOString()}`,
+      ``,
+      `## 1. Executive Summary & Obiettivo`,
+      planDesc || 'Pianificazione strutturata del workflow multi-fase.',
+      ``,
+      `## 2. DAG dei Task Sequenziali`,
+      ...formattedTasks.map(t => `- **${t.id}: ${t.title}** (Ruolo: \`${t.assigned_role}\`, Runner: \`${t.runner}\`, Deliverable: \`${t.deliverable_file}\`)`),
+      ``,
+      `## 3. Protocollo di Gate & Approvazione`,
+      `- **Gate 1 (Pianificazione):** Approvazione del supervisore umano prima dell'avvio dei task.`,
+      `- **Gate 2 (Verifica Deliverable):** Audit Linter AST/Regex (max 3 retry) su ciascun deliverable.`,
+      `- **Gate 3 (Chiusura):** Consolidamento finale in Obsidian Vault e chiusura del ciclo.`
+    ].join('\n');
+  }
+
+  await fs.writeFile(MASTER_PLAN_MD, mdContent, 'utf8');
+
+  const payload = {
+    plan_id: pid,
+    title: planTitle,
+    description: planDesc,
+    status: planStatus,
+    updated_at: new Date().toISOString(),
+    tasks: formattedTasks
+  };
+
+  await fs.writeFile(PLAN_JSON, JSON.stringify(payload, null, 2), 'utf8');
+  return { payload, formattedTasks, mdContent };
 }
 
 /**
@@ -194,7 +275,7 @@ function auditMarkdownContent(content) {
 }
 
 export const name = 'the-architect';
-export const inject = ['tools'];
+export const inject = ['tools', 'commands', 'systemPrompt'];
 
 export function apply(ctx) {
   // Avvia il bootstrap dell'ambiente al caricamento del plugin
@@ -205,11 +286,68 @@ export function apply(ctx) {
   }
 
   // --------------------------------------------------------------------------
-  // TOOL 1: architect_triage
+  // TOOL 1: architect_create_plan (Plan Sidebar & Master Plan Orchestrator)
+  // --------------------------------------------------------------------------
+  ctx.tools.register({
+    name: 'architect_create_plan',
+    description: 'MANDATORY: Crea e salva il Master Plan formale (.dsh/tasks/00_master_plan.md) e aggiorna in tempo reale la Plan Sidebar (.dsh/tasks/plan.json) con le schede dei task, i ruoli assegnati e i deliverable. DEVE essere invocato ogni volta che l\'utente richiede la pianificazione di un workflow, architettura o progetto, o quando viene usato il comando /architect.',
+    parameters: {
+      plan_id: { type: 'string', required: true, description: 'ID univoco del piano (es. "PLAN-01")' },
+      title: { type: 'string', required: true, description: 'Titolo descrittivo del workflow o progetto' },
+      description: { type: 'string', required: false, description: 'Sintesi dell\'obiettivo del piano' },
+      status: { type: 'string', required: false, description: '"PENDING_APPROVAL", "IN_PROGRESS", "APPROVED", o "COMPLETED"' },
+      tasks: {
+        type: 'array',
+        required: true,
+        description: 'Array di task sequenziali: [{ id: "TASK-01", title: "...", description: "...", assigned_role: "curator"|"auditor"|"engineer"|"osint", runner: "native"|"python"|"expo"|"go"|"rust", deliverable_file: ".dsh/tasks/task_01_result.md" }]'
+      },
+      markdown_plan: {
+        type: 'string',
+        required: false,
+        description: 'Contenuto Markdown formale ed esaustivo da salvare in .dsh/tasks/00_master_plan.md (Executive Summary, DAG architetturale, ruoli, gate).'
+      }
+    },
+    output: {
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          plan_id: { type: 'string' },
+          plan_file: { type: 'string' },
+          plan_json: { type: 'string' },
+          tasks_count: { type: 'number' },
+          message: { type: 'string' }
+        }
+      },
+      render: (v) => JSON.stringify(v, null, 2)
+    },
+    execute: async (args) => {
+      const { payload, formattedTasks } = await syncPlanState({
+        plan_id: args.plan_id,
+        title: args.title,
+        description: args.description,
+        status: args.status || 'PENDING_APPROVAL',
+        tasks: args.tasks,
+        markdown_plan: args.markdown_plan
+      });
+
+      return {
+        success: true,
+        plan_id: payload.plan_id,
+        plan_file: MASTER_PLAN_MD,
+        plan_json: PLAN_JSON,
+        tasks_count: formattedTasks.length,
+        message: 'Master Plan salvato su disco (.dsh/tasks/00_master_plan.md) e Plan Sidebar (.dsh/tasks/plan.json) sincronizzata con successo.'
+      };
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // TOOL 2: architect_triage
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_triage',
-    description: 'Esegue il triage di complessità e il Gate di Trivialità di The Architect prima di avviare piani complessi.',
+    description: 'Esegue il triage di complessità e il Gate di Trivialità di The Architect. Se la richiesta è complessa o contiene /architect, propone e pre-inizializza il Master Plan.',
     parameters: {
       user_request: { type: 'string', required: true, description: 'La richiesta espressa dall\'utente' },
       force_mode: { type: 'string', required: false, description: 'Forza la modalità: "fast", "deep", o "auto"' }
@@ -221,6 +359,8 @@ export function apply(ctx) {
           path: { type: 'string' },
           trivial: { type: 'boolean' },
           reason: { type: 'string' },
+          plan_file: { type: 'string' },
+          plan_json: { type: 'string' },
           recommendation: { type: 'string' }
         }
       },
@@ -241,13 +381,13 @@ export function apply(ctx) {
       }
 
       // Richiesta complessa: propone la compilazione del Master Plan
-      const planFile = path.join(TASKS_DIR, '00_master_plan.md');
       return {
         path: 'MULTI_TASK_PLAN',
         trivial: false,
-        reason: 'Compito multi-hop o modifiche strutturali rilevate.',
-        plan_file: planFile,
-        recommendation: 'Compila .dsh/tasks/00_master_plan.md con i task sequenziali e richiedi l\'avallo dell\'utente prima di spawnare sub-agenti.'
+        reason: 'Compito multi-fase o architettura complessa rilevata.',
+        plan_file: MASTER_PLAN_MD,
+        plan_json: PLAN_JSON,
+        recommendation: 'Invoca immediatamente il tool "architect_create_plan" definendo i task sequenziali e le specifiche per popolare la Plan Sidebar e salvare .dsh/tasks/00_master_plan.md.'
       };
     }
   });
@@ -588,6 +728,94 @@ ${skillContent}
         tokens_saved_estimate: tokensSaved,
         status: 'UPDATED'
       };
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // SLASH COMMAND: /architect
+  // --------------------------------------------------------------------------
+  ctx.inject(['commands'], (cmdCtx) => {
+    if (!cmdCtx.commands || typeof cmdCtx.commands.register !== 'function') return;
+    cmdCtx.commands.register({
+      name: 'architect',
+      description: 'Avvia l\'orchestrazione e la pianificazione autonoma con The Architect',
+      input: {
+        hint: '<descrizione del workflow o architettura>',
+        images: false
+      },
+      handler: async (invocation) => {
+        const raw = invocation.rawInput ? invocation.rawInput.trim() : '';
+        if (!raw) {
+          return {
+            kind: 'success',
+            text: [
+              '🏛️ **The Architect — Autonomous Architecture Engine**',
+              '',
+              '**Uso:** `/architect <descrizione del workflow o architettura>`',
+              '**Esempio:** `/architect Pianifica un workflow per controllare tutte le mattine le notizie di ecologia e produrre un bollettino TL;DR`',
+              '',
+              'Il comando genera automaticamente il Master Plan formale in `.dsh/tasks/00_master_plan.md` e sincronizza la **Plan Sidebar** con le schede dei task e i controlli del Gate.'
+            ].join('\n')
+          };
+        }
+
+        try {
+          invocation.agent.followup(createUserMessage({
+            content: [{
+              type: 'text',
+              text: [
+                `[THE ARCHITECT DIRECTIVE - PIANIFICAZIONE RICHIESTA]`,
+                `L'utente ha richiesto formalmente tramite /architect la pianificazione del seguente obiettivo:`,
+                `"${raw}"`,
+                ``,
+                `AZIONI OBBLIGATORIE:`,
+                `1. NON rispondere con solo testo o spiegazioni discorsive in chat.`,
+                `2. Invoca SUBITO il tool 'architect_create_plan' strutturando il piano:`,
+                `   - plan_id: "PLAN-01"`,
+                `   - title: titolo descrittivo del workflow`,
+                `   - description: sintesi dell'obiettivo`,
+                `   - status: "PENDING_APPROVAL"`,
+                `   - tasks: suddivisione rigorosa in task sequenziali (TASK-01, TASK-02, ...), ciascuno con { id, title, description, assigned_role, runner, deliverable_file, status: "PENDING" }`,
+                `   - markdown_plan: documento Markdown completo per .dsh/tasks/00_master_plan.md con Executive Summary, DAG architetturale, specifiche deliverable e Gate 1-3.`,
+                `3. Questo salverà il Master Plan su disco e aggiornerà istantaneamente la Plan Sidebar nella UI.`,
+                `4. Presenta all'utente una sintesi chiara del piano generato e richiedi l'approvazione del Gate 1 per iniziare l'esecuzione.`
+              ].join('\n')
+            }],
+            source: { kind: 'user' }
+          }));
+        } catch (err) {
+          console.error(`[the-architect] Errore durante l'invio della direttiva agent.followup: ${err.message}`);
+        }
+
+        return {
+          kind: 'success',
+          text: `🏛️ **The Architect**: Ricevuta richiesta di pianificazione per: "${raw}". Inizializzazione del Master Plan e aggiornamento della Plan Sidebar in corso...`
+        };
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // SYSTEM PROMPT: The Architect Operational Invariants
+  // --------------------------------------------------------------------------
+  ctx.inject(['systemPrompt'], (promptCtx) => {
+    if (!promptCtx.systemPrompt || typeof promptCtx.systemPrompt.section !== 'function') return;
+    try {
+      promptCtx.systemPrompt.section({
+        name: 'the-architect:directives',
+        order: 10,
+        text: [
+          '## THE ARCHITECT — OPERATIONAL DIRECTIVES & PLAN SIDEBAR INTEGRATION',
+          'You are augmented with The Architect cognitive runtime.',
+          'CRITICAL INVARIANT: Whenever the user mentions "/architect", asks to design, plan, or structure a workflow, pipeline, multi-step process, or software project:',
+          '1. NEVER reply with conversational plain text alone.',
+          '2. You MUST immediately invoke the tool "architect_create_plan" to decompose the request into structured tasks and write .dsh/tasks/00_master_plan.md.',
+          '3. Calling "architect_create_plan" updates the Plan Sidebar in the web UI so the user can see progress and inspect intermediate deliverables.',
+          '4. Present an executive summary of the created plan and request user approval at Gate 1.'
+        ].join('\n')
+      });
+    } catch (err) {
+      console.error(`[the-architect] Impossibile registrare la sezione systemPrompt: ${err.message}`);
     }
   });
 }
