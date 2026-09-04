@@ -120,8 +120,9 @@ function evaluateTriviality(prompt) {
 
   // Mandatory keywords that always route through The Architect
   const architectKeywords = [
-    '/architect', 'architect', 'architettura', 'workflow', 'pianifica', 'pianificazione',
-    'pipeline', 'progetto', 'task', 'piano', 'organizza', 'automazione', 'monitoraggio'
+    '/architect', 'architect', 'architecture', 'workflow', 'plan', 'planning',
+    'pipeline', 'project', 'task', 'organize', 'automation', 'monitoring',
+    'architettura', 'pianifica', 'pianificazione', 'progetto', 'piano', 'organizza', 'automazione', 'monitoraggio'
   ];
   for (const akw of architectKeywords) {
     if (p.includes(akw)) {
@@ -133,8 +134,10 @@ function evaluateTriviality(prompt) {
   }
 
   const trivialKeywords = [
-    'ricetta', 'tortellini', 'pasta', 'cucinare', 'meteo', 'ciao', 'buongiorno',
-    'chi sei', 'come stai', 'traduci', 'spiegami in 2 righe', 'che ore sono',
+    'hello', 'hi', 'hey', 'who are you', 'how are you', 'what time is it', 'weather',
+    'recipe', 'translate', 'explain in 2 lines', 'syntax for', 'difference between',
+    'ciao', 'buongiorno', 'chi sei', 'come stai', 'che ore sono', 'meteo',
+    'ricetta', 'tortellini', 'pasta', 'cucinare', 'traduci', 'spiegami in 2 righe',
     'come si dichiara', 'sintassi per', 'differenza tra let e var'
   ];
 
@@ -148,23 +151,23 @@ function evaluateTriviality(prompt) {
   }
 
   // If prompt is very short (< 40 chars) and contains no operational keywords
-  if (p.length < 40 && !p.includes('progetto') && !p.includes('analizza') && !p.includes('refactor') && !p.includes('vault')) {
+  if (p.length < 40 && !p.includes('project') && !p.includes('plan') && !p.includes('progetto') && !p.includes('analizza') && !p.includes('refactor') && !p.includes('vault')) {
     return {
       isTrivial: true,
-      reason: 'Richiesta breve non strutturata. Risposta diretta senza overhead.'
+      reason: 'Short unstructured request. Direct response without overhead.'
     };
   }
 
   return {
     isTrivial: false,
-    reason: 'Richiesta multi-fase o complessa. Richiede Triage e Master Plan.'
+    reason: 'Multi-phase or complex request. Requires Triage and Master Plan.'
   };
 }
 
 /**
- * Sincronizza lo stato del piano universale:
- * scrive sia il Markdown completo (.dsh/tasks/00_master_plan.md)
- * sia il formato JSON consumato direttamente dalla Plan Sidebar (.dsh/tasks/plan.json).
+ * Synchronizes universal plan state:
+ * writes both complete Markdown (.dsh/tasks/00_master_plan.md)
+ * and JSON consumed directly by Plan Sidebar (.dsh/tasks/plan.json).
  */
 async function syncPlanState({ session_id, plan_id, title, description, status, tasks, markdown_plan }) {
   await fs.mkdir(TASKS_DIR, { recursive: true });
@@ -173,7 +176,7 @@ async function syncPlanState({ session_id, plan_id, title, description, status, 
     const taskId = t.id || `TASK-${String(idx + 1).padStart(2, '0')}`;
     return {
       id: taskId,
-      title: t.title || `Fase ${idx + 1}`,
+      title: t.title || `Phase ${idx + 1}`,
       description: t.description || '',
       status: t.status || 'PENDING',
       assigned_role: t.assigned_role || 'curator',
@@ -185,7 +188,7 @@ async function syncPlanState({ session_id, plan_id, title, description, status, 
   });
 
   const pid = plan_id || 'PLAN-01';
-  const planTitle = title || 'Piano Operativo The Architect';
+  const planTitle = title || 'The Architect Operational Plan';
   const planDesc = description || '';
   const planStatus = status || 'PENDING_APPROVAL';
 
@@ -194,18 +197,18 @@ async function syncPlanState({ session_id, plan_id, title, description, status, 
     mdContent = [
       `# 🏛️ Master Plan: ${pid} - ${planTitle}`,
       ``,
-      `> **Status:** ${planStatus} | **Aggiornato:** ${new Date().toISOString()}`,
+      `> **Status:** ${planStatus} | **Updated:** ${new Date().toISOString()}`,
       ``,
-      `## 1. Executive Summary & Obiettivo`,
-      planDesc || 'Pianificazione strutturata del workflow multi-fase.',
+      `## 1. Executive Summary & Objective`,
+      planDesc || 'Structured multi-phase workflow execution plan.',
       ``,
-      `## 2. DAG dei Task Sequenziali`,
-      ...formattedTasks.map(t => `- **${t.id}: ${t.title}** (Ruolo: \`${t.assigned_role}\`, Runner: \`${t.runner}\`, Deliverable: \`${t.deliverable_file}\`)`),
+      `## 2. Sequential Task DAG`,
+      ...formattedTasks.map(t => `- **${t.id}: ${t.title}** (Role: \`${t.assigned_role}\`, Runner: \`${t.runner}\`, Deliverable: \`${t.deliverable_file}\`)`),
       ``,
-      `## 3. Protocollo di Gate & Approvazione`,
-      `- **Gate 1 (Pianificazione):** Approvazione del supervisore umano prima dell'avvio dei task.`,
-      `- **Gate 2 (Verifica Deliverable):** Audit Linter AST/Regex (max 3 retry) su ciascun deliverable.`,
-      `- **Gate 3 (Chiusura):** Consolidamento finale in Obsidian Vault e chiusura del ciclo.`
+      `## 3. Gating & Verification Protocol`,
+      `- **Gate 1 (Planning):** Human supervisor review and approval before starting tasks.`,
+      `- **Gate 2 (Deliverable Verification):** AST/Regex Linter audit (max 3 retries) on each deliverable.`,
+      `- **Gate 3 (Completion):** Final consolidation into Obsidian Vault and workflow closure.`
     ].join('\n');
   }
 
@@ -254,14 +257,14 @@ function auditMarkdownContent(content) {
   }
   const bulletRatio = (bulletLines / totalLines) * 100;
   if (bulletRatio > 10) {
-    issues.push(`Elenchi puntati al ${bulletRatio.toFixed(1)}% (limite massimo consentito: 10%). Riscrivi in prosa continua strutturata con sezioni concettuali.`);
+    issues.push(`Bullet points at ${bulletRatio.toFixed(1)}% (maximum allowed: 10%). Rewrite in continuous prose organized by conceptual sections.`);
   }
 
   // 2. Emoji prohibition constraint
   const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
   const emojiMatches = content.match(emojiRegex);
   if (emojiMatches) {
-    issues.push(`Rilevate emoji nel testo formale ('${emojiMatches[0]}'). Il manifesto formale proibisce severamente l'uso di emoji.`);
+    issues.push(`Detected emoji in formal deliverable ('${emojiMatches[0]}'). Formal style strictly prohibits emoji usage.`);
   }
 
   // 3. Isolated meta-cognitive acronym constraint (MECE, SCQA, BLUF, NPOV)
@@ -272,7 +275,7 @@ function auditMarkdownContent(content) {
       // Allowed only in header callouts, prohibited in body text
       const matches = content.split('\n').filter(l => !l.startsWith('>') && r.test(l));
       if (matches.length > 0) {
-        issues.push(`Uso non schermato dell'acronimo metodologico '${acr}' nel corpo del testo. Demistificare il concetto senza citare l'acronimo.`);
+        issues.push(`Unshielded methodological acronym '${acr}' in body text. Demystify the concept without relying on the acronym.`);
       }
     }
   }
@@ -300,12 +303,12 @@ export function apply(ctx) {
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_create_plan',
-    description: 'MANDATORY: Crea e salva il Master Plan formale (.dsh/tasks/00_master_plan.md) e aggiorna in tempo reale la Plan Sidebar (.dsh/tasks/plan.json) con le schede dei task, i ruoli assegnati e i deliverable. DEVE essere invocato ogni volta che l\'utente richiede la pianificazione di un workflow, architettura o progetto, o quando viene usato il comando /architect.',
+    description: 'MANDATORY: Creates and saves the formal Master Plan (.dsh/tasks/00_master_plan.md) and updates the Plan Sidebar (.dsh/tasks/plan.json) in real time with task cards, assigned roles, and deliverables. MUST be invoked whenever the user requests workflow, architecture, or project planning, or when /architect is used.',
     parameters: {
       session_id: { type: 'string', required: false, description: 'Optional session identifier for per-session plan scoping' },
       plan_id: { type: 'string', required: true, description: 'Unique plan ID (e.g. "PLAN-01")' },
       title: { type: 'string', required: true, description: 'Descriptive title of workflow or project' },
-      description: { type: 'string', required: false, description: 'Sintesi dell\'obiettivo del piano' },
+      description: { type: 'string', required: false, description: 'Summary of the plan objective' },
       status: { type: 'string', required: false, description: '"PENDING_APPROVAL", "IN_PROGRESS", "APPROVED", or "COMPLETED"' },
       tasks: {
         type: 'array',
@@ -359,10 +362,10 @@ export function apply(ctx) {
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_clear_plan',
-    description: 'Cancella o resetta il piano operativo attuale e ripulisce la dashboard di pianificazione (Plan Sidebar). Invocare quando l\'utente chiede di cancellare, annullare o resettare il piano.',
+    description: 'Clears or resets the active operational plan and empties the Plan Sidebar dashboard. Invoke when the user requests to cancel, clear, or reset the plan.',
     parameters: {
       session_id: { type: 'string', required: false, description: 'Optional session ID to clear session-specific plan.' },
-      all: { type: 'boolean', required: false, description: 'Se true, rimuove sia il piano di sessione che il piano globale' }
+      all: { type: 'boolean', required: false, description: 'If true, removes both the session plan and the global plan' }
     },
     output: {
       schema: {
@@ -385,7 +388,7 @@ export function apply(ctx) {
       }
       return {
         success: true,
-        message: 'Piano operativo cancellato con successo. La dashboard Plan Sidebar è stata azzerata.'
+        message: 'Operational plan cleared successfully. Plan Sidebar dashboard has been reset.'
       };
     }
   });
@@ -397,7 +400,7 @@ export function apply(ctx) {
     name: 'architect_triage',
     description: 'Executes complexity triage and Triviality Gate. If prompt is multi-step or contains /architect, prepares Master Plan initialization.',
     parameters: {
-      user_request: { type: 'string', required: true, description: 'La richiesta espressa dall\'utente' },
+      user_request: { type: 'string', required: true, description: 'User request prompt to triage' },
       force_mode: { type: 'string', required: false, description: 'Force triage mode: "fast", "deep", or "auto"' }
     },
     output: {
@@ -423,7 +426,7 @@ export function apply(ctx) {
             path: 'FAST_PATH',
             trivial: true,
             reason: triage.reason,
-            recommendation: 'Rispondi istantaneamente all\'utente in modalità conversazionale. NON creare master plan o sub-agenti.'
+            recommendation: 'Respond directly to the user in conversational mode. DO NOT create a master plan or spawn sub-agents.'
           };
         }
       }
@@ -486,8 +489,8 @@ export function apply(ctx) {
 
 ## L0 - Kernel Invariants & Role Contract (C1–C5)
 - **C1 (Routing Fallback):** If request falls outside scope, stop and fall back to system map.
-- **C2 (Handoff State):** Scrivi tutto il deliverable in \`${args.output_file}\`. All'avvio leggi solo i file di input dichiarati.
-- **C3 (Code-as-Action):** Per manipolazioni pesanti, scrivi script in \`tmp/\`, eseguili e distruggili (Active Oblivion).
+- **C2 (Handoff State):** Write entire deliverable into \`${args.output_file}\`. At startup read only declared input files.
+- **C3 (Code-as-Action):** For heavy data manipulation, generate disposable scripts in \`tmp/\`, execute, and destroy (Active Oblivion).
 - **C4 (Territorial Confinement):** Strictly respect directory boundaries assigned by DAG; write nowhere else.
 - **C5 (Iterative Guardrails):** Maximum 3 consecutive self-correction retries with Linter.
 
@@ -590,7 +593,7 @@ ${skillContent}
         attempt_number: attempt,
         bullet_ratio: audit.bulletRatio,
         issues: audit.issues,
-        feedback_prompt: 'Raggiunto il limite di 3 tentativi. Blocco dell\'esecuzione autonoma e cessione del controllo al supervisore umano.'
+        feedback_prompt: 'Reached limit of 3 attempts. Halting autonomous execution and delegating control to human supervisor.'
       };
     }
   });
@@ -600,11 +603,11 @@ ${skillContent}
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'docker_runner_exec',
-    description: 'Esegue comandi di test e compilazione all\'interno dei container runner dedicati (Go, Rust, Expo, Python) via socket Docker.',
+    description: 'Executes test, build, and validation commands inside dedicated container runners (Go, Rust, Expo, Python) via Docker socket.',
     parameters: {
       runner: { type: 'string', required: true, description: 'Target environment: "go", "rust", "expo", "python"' },
       cmd: { type: 'array', required: true, description: 'Command array to execute, e.g. ["go", "test", "./..."]' },
-      working_dir: { type: 'string', required: false, description: 'Directory di lavoro all\'interno del container' }
+      working_dir: { type: 'string', required: false, description: 'Working directory inside the container' }
     },
     output: {
       schema: {
@@ -786,7 +789,7 @@ ${skillContent}
     if (!cmdCtx.commands || typeof cmdCtx.commands.register !== 'function') return;
     cmdCtx.commands.register({
       name: 'architect',
-      description: 'Avvia l\'orchestrazione e la pianificazione autonoma con The Architect',
+      description: 'Initiate autonomous orchestration and master planning with The Architect',
       input: {
         hint: '<project or workflow description>',
         images: false
@@ -799,7 +802,7 @@ ${skillContent}
             text: [
               '🏛️ **The Architect — Autonomous Architecture Engine**',
               '',
-              '**Uso:** `/architect <project or workflow description>`',
+              '**Usage:** `/architect <project or workflow description>`',
               '**Example:** `/architect Design an automated morning pipeline to monitor ecology news and produce daily summaries`',
               '',
               'Generates formal Master Plan in `.dsh/tasks/00_master_plan.md` and synchronizes the **Plan Sidebar** with live task cards and Gate controls.'
