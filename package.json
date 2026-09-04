@@ -4,6 +4,18 @@
   "description": "The Architect & ICM Runtime Engine for DeepSeek Harness (DSH)",
   "main": "index.js",
   "type": "module",
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "keywords": [
     "dsh-plugin",
     "cordis",
@@ -12,6 +24,6 @@
     "fable-loop",
     "docker-runners"
   ],
-  "author": "Antigravity",
+  "author": "Bebbolus",
   "license": "MIT"
 }
