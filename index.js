@@ -122,7 +122,9 @@ function evaluateTriviality(prompt) {
   const architectKeywords = [
     '/architect', 'architect', 'architecture', 'workflow', 'plan', 'planning',
     'pipeline', 'project', 'task', 'organize', 'automation', 'monitoring',
-    'architettura', 'pianifica', 'pianificazione', 'progetto', 'piano', 'organizza', 'automazione', 'monitoraggio'
+    'analyze', 'synthesize', 'compare', 'evaluate', 'design', 'investigate', 'refactor', 'audit', 'benchmark',
+    'architettura', 'pianifica', 'pianificazione', 'progetto', 'piano', 'organizza', 'automazione', 'monitoraggio',
+    'analizza', 'sintetizza', 'confronta', 'valuta', 'progetta', 'investiga', 'ottimizza'
   ];
   for (const akw of architectKeywords) {
     if (p.includes(akw)) {
@@ -151,7 +153,11 @@ function evaluateTriviality(prompt) {
   }
 
   // If prompt is very short (< 40 chars) and contains no operational keywords
-  if (p.length < 40 && !p.includes('project') && !p.includes('plan') && !p.includes('progetto') && !p.includes('analizza') && !p.includes('refactor') && !p.includes('vault')) {
+  const operationalVerbs = [
+    'project', 'plan', 'progetto', 'analizza', 'refactor', 'vault',
+    'analyze', 'synthesize', 'compare', 'evaluate', 'design', 'investigate', 'audit', 'benchmark'
+  ];
+  if (p.length < 40 && !operationalVerbs.some(verb => p.includes(verb))) {
     return {
       isTrivial: true,
       reason: 'Short unstructured request. Direct response without overhead.'
@@ -238,16 +244,19 @@ async function syncPlanState({ session_id, plan_id, title, description, status, 
 }
 
 /**
- * Linter Deterministico AST / Regex
+ * Deterministic AST / Regex Linter
+ * Evaluates deliverables against formal invariants with configurable thresholds.
  */
-function auditMarkdownContent(content) {
+function auditMarkdownContent(content, options = {}) {
   const lines = content.split('\n');
   const totalLines = lines.length;
-  if (totalLines === 0) return { passed: true, issues: [] };
+  if (totalLines === 0) return { passed: true, issues: [], bulletRatio: '0.0' };
 
   const issues = [];
+  const maxBulletRatio = options.maxBulletRatio ?? (Number(process.env.ARCHITECT_MAX_BULLET_RATIO) || 20);
+  const allowEmojis = options.allowEmojis ?? (process.env.ARCHITECT_ALLOW_EMOJIS === 'true');
 
-  // 1. Bullet point constraint (< 10% of total lines)
+  // 1. Bullet point constraint (default < 20% of total lines, configurable)
   let bulletLines = 0;
   for (const line of lines) {
     const trimmed = line.trim();
@@ -256,15 +265,17 @@ function auditMarkdownContent(content) {
     }
   }
   const bulletRatio = (bulletLines / totalLines) * 100;
-  if (bulletRatio > 10) {
-    issues.push(`Bullet points at ${bulletRatio.toFixed(1)}% (maximum allowed: 10%). Rewrite in continuous prose organized by conceptual sections.`);
+  if (bulletRatio > maxBulletRatio) {
+    issues.push(`Bullet points at ${bulletRatio.toFixed(1)}% (maximum allowed: ${maxBulletRatio}%). Rewrite in continuous prose organized by conceptual sections.`);
   }
 
-  // 2. Emoji prohibition constraint
-  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
-  const emojiMatches = content.match(emojiRegex);
-  if (emojiMatches) {
-    issues.push(`Detected emoji in formal deliverable ('${emojiMatches[0]}'). Formal style strictly prohibits emoji usage.`);
+  // 2. Emoji prohibition constraint (unless explicitly allowed)
+  if (!allowEmojis) {
+    const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
+    const emojiMatches = content.match(emojiRegex);
+    if (emojiMatches) {
+      issues.push(`Detected emoji in formal deliverable ('${emojiMatches[0]}'). Formal style strictly prohibits emoji usage.`);
+    }
   }
 
   // 3. Isolated meta-cognitive acronym constraint (MECE, SCQA, BLUF, NPOV)
@@ -529,7 +540,9 @@ ${skillContent}
     description: 'Runs deterministic AST/Regex linter against deliverable file with retry-loop control (max 3 retries).',
     parameters: {
       result_file: { type: 'string', required: true, description: 'Path of result Markdown file to audit' },
-      attempt_number: { type: 'number', required: false, description: 'Current attempt count (1, 2, or 3)' }
+      attempt_number: { type: 'number', required: false, description: 'Current attempt count (1, 2, or 3)' },
+      max_bullet_ratio: { type: 'number', required: false, description: 'Maximum allowed bullet point line percentage (default: 20)' },
+      allow_emojis: { type: 'boolean', required: false, description: 'Whether emojis are permitted in deliverable (default: false)' }
     },
     output: {
       schema: {
@@ -559,7 +572,10 @@ ${skillContent}
         };
       }
 
-      const audit = auditMarkdownContent(content);
+      const audit = auditMarkdownContent(content, {
+        maxBulletRatio: args.max_bullet_ratio,
+        allowEmojis: args.allow_emojis
+      });
 
       if (audit.passed) {
         return {
