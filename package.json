@@ -1,0 +1,17 @@
+{
+  "name": "dsh-plugin-the-architect",
+  "version": "1.0.0",
+  "description": "The Architect & ICM Runtime Engine for DeepSeek Harness (DSH)",
+  "main": "index.js",
+  "type": "module",
+  "keywords": [
+    "dsh-plugin",
+    "cordis",
+    "the-architect",
+    "icm",
+    "fable-loop",
+    "docker-runners"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
