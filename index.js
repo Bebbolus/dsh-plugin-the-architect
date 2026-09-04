@@ -1,9 +1,9 @@
 /**
  * dsh-plugin-the-architect
- * Cordis Plugin per DeepSeek Harness (DSH)
- * Implementazione del Runtime ICM (Interpretable Context Methodology),
- * Triage State Machine con Gate di Trivialità, Zero-Token Handoff,
- * Linter AST/Regex Deterministico a 3-Retry, e Controllo Runner Docker.
+ * Cordis Plugin for DeepSeek Harness (DSH)
+ * Implementation of the ICM (Interpretable Context Methodology) Runtime,
+ * Triage State Machine with Triviality Gate, Zero-Token Handoff,
+ * Deterministic 3-Retry AST/Regex Linter, and Ephemeral Docker Runner Control.
  */
 
 import { promises as fs } from 'fs';
@@ -23,7 +23,7 @@ const SEEDS_DIR = path.join(__dirname, 'seeds');
 const CONFIG_FILE = path.join(WORKSPACE_DIR, '.dsh', 'capabilities.json');
 const DOCKER_SOCKET = '/var/run/docker.sock';
 
-// Stato dei toggle di default
+// Default capability toggles
 const DEFAULT_CAPABILITIES = {
   the_architect: true,
   graphify_vault: true,
@@ -33,7 +33,7 @@ const DEFAULT_CAPABILITIES = {
 };
 
 /**
- * Richiesta HTTP nativa su UNIX Socket di Docker (senza dipendenze npm)
+ * Native HTTP request over Docker UNIX Socket (zero npm dependencies)
  */
 function dockerSocketRequest(method, endpoint, body = null) {
   return new Promise((resolve, reject) => {
@@ -72,14 +72,14 @@ function dockerSocketRequest(method, endpoint, body = null) {
 }
 
 /**
- * Bootstrap iniziale delle cartelle e dei semi delle skill (.dsh/skills)
+ * Initial environment bootstrap for task directories and skill seeds (.dsh/skills)
  */
 async function bootstrapEnvironment() {
   try {
     await fs.mkdir(TASKS_DIR, { recursive: true });
     await fs.mkdir(SKILLS_DIR, { recursive: true });
 
-    // Se skills è vuota o manca l'indice, semina i blueprint essenziali
+    // If skills directory is empty, seed essential skill blueprints
     const existingSkills = await fs.readdir(SKILLS_DIR).catch(() => []);
     if (existingSkills.length === 0) {
       const seedFiles = await fs.readdir(SEEDS_DIR).catch(() => []);
@@ -91,14 +91,14 @@ async function bootstrapEnvironment() {
       }
     }
 
-    // Inizializza capabilities.json se assente
+    // Initialize capabilities.json if missing
     try {
       await fs.access(CONFIG_FILE);
     } catch {
       await fs.writeFile(CONFIG_FILE, JSON.stringify(DEFAULT_CAPABILITIES, null, 2), 'utf8');
     }
 
-    // Inizializza skills-index.json per il routing leggero
+    // Initialize skills-index.json for lightweight routing
     const skillsList = await fs.readdir(SKILLS_DIR).catch(() => []);
     const indexData = skillsList.filter(f => f.endsWith('.skill.md') || f.endsWith('.md')).map(f => ({
       name: f.replace(/\.skill\.md$|\.md$/, ''),
@@ -106,19 +106,19 @@ async function bootstrapEnvironment() {
     }));
     await fs.writeFile(path.join(WORKSPACE_DIR, '.dsh', 'skills-index.json'), JSON.stringify(indexData, null, 2), 'utf8');
   } catch (err) {
-    console.error(`[the-architect] Errore durante il bootstrap: ${err.message}`);
+    console.error(`[the-architect] Bootstrap error: ${err.message}`);
   }
 }
 
 /**
- * Gate di Trivialità: analizza se una richiesta è conversazionale/atomica o multi-task
+ * Triviality Gate: evaluates whether a prompt is quick/conversational or a multi-task project
  */
 function evaluateTriviality(prompt) {
   if (!prompt || typeof prompt !== 'string') return { isTrivial: true, reason: 'Empty prompt' };
   
   const p = prompt.toLowerCase();
 
-  // Parole chiave obbligatorie che forzano SEMPRE il percorso The Architect
+  // Mandatory keywords that always route through The Architect
   const architectKeywords = [
     '/architect', 'architect', 'architettura', 'workflow', 'pianifica', 'pianificazione',
     'pipeline', 'progetto', 'task', 'piano', 'organizza', 'automazione', 'monitoraggio'
@@ -127,7 +127,7 @@ function evaluateTriviality(prompt) {
     if (p.includes(akw)) {
       return {
         isTrivial: false,
-        reason: `Rilevata intenzione strutturata / The Architect ('${akw}'). Richiede Master Plan e Plan Sidebar.`
+        reason: `Structured architectural intent detected ('${akw}'). Requires Master Plan and Plan Sidebar.`
       };
     }
   }
@@ -142,12 +142,12 @@ function evaluateTriviality(prompt) {
     if (p.includes(kw)) {
       return {
         isTrivial: true,
-        reason: `Rilevata intenzione rapida/conversazionale ('${kw}'). Bypass totale della fabbrica.`
+        reason: `Quick conversational query detected ('${kw}'). Bypassing plan factory.`
       };
     }
   }
 
-  // Se il prompt è molto breve (< 40 caratteri) e non contiene parole chiave operative
+  // If prompt is very short (< 40 chars) and contains no operational keywords
   if (p.length < 40 && !p.includes('progetto') && !p.includes('analizza') && !p.includes('refactor') && !p.includes('vault')) {
     return {
       isTrivial: true,
@@ -234,7 +234,7 @@ function auditMarkdownContent(content) {
 
   const issues = [];
 
-  // 1. Vincolo Elenchi Puntati (< 10% delle righe totali)
+  // 1. Bullet point constraint (< 10% of total lines)
   let bulletLines = 0;
   for (const line of lines) {
     const trimmed = line.trim();
@@ -247,19 +247,19 @@ function auditMarkdownContent(content) {
     issues.push(`Elenchi puntati al ${bulletRatio.toFixed(1)}% (limite massimo consentito: 10%). Riscrivi in prosa continua strutturata con sezioni concettuali.`);
   }
 
-  // 2. Divieto Emoji
+  // 2. Emoji prohibition constraint
   const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
   const emojiMatches = content.match(emojiRegex);
   if (emojiMatches) {
     issues.push(`Rilevate emoji nel testo formale ('${emojiMatches[0]}'). Il manifesto formale proibisce severamente l'uso di emoji.`);
   }
 
-  // 3. Divieto di acronimi sparsi non contestualizzati (MECE, SCQA, BLUF, NPOV)
+  // 3. Isolated meta-cognitive acronym constraint (MECE, SCQA, BLUF, NPOV)
   const forbiddenAcronyms = ['MECE', 'SCQA', 'BLUF', 'NPOV'];
   for (const acr of forbiddenAcronyms) {
     const r = new RegExp(`\\b${acr}\\b`, 'g');
     if (r.test(content)) {
-      // Consentito solo nei callout di intestazione, vietato nel corpo
+      // Allowed only in header callouts, prohibited in body text
       const matches = content.split('\n').filter(l => !l.startsWith('>') && r.test(l));
       if (matches.length > 0) {
         issues.push(`Uso non schermato dell'acronimo metodologico '${acr}' nel corpo del testo. Demistificare il concetto senza citare l'acronimo.`);
@@ -278,7 +278,7 @@ export const name = 'the-architect';
 export const inject = ['tools', 'commands', 'systemPrompt'];
 
 export function apply(ctx) {
-  // Avvia il bootstrap dell'ambiente al caricamento del plugin
+  // Initialize environment bootstrap on plugin load
   bootstrapEnvironment();
 
   if (!ctx.tools || typeof ctx.tools.register !== 'function') {
@@ -292,19 +292,19 @@ export function apply(ctx) {
     name: 'architect_create_plan',
     description: 'MANDATORY: Crea e salva il Master Plan formale (.dsh/tasks/00_master_plan.md) e aggiorna in tempo reale la Plan Sidebar (.dsh/tasks/plan.json) con le schede dei task, i ruoli assegnati e i deliverable. DEVE essere invocato ogni volta che l\'utente richiede la pianificazione di un workflow, architettura o progetto, o quando viene usato il comando /architect.',
     parameters: {
-      plan_id: { type: 'string', required: true, description: 'ID univoco del piano (es. "PLAN-01")' },
-      title: { type: 'string', required: true, description: 'Titolo descrittivo del workflow o progetto' },
+      plan_id: { type: 'string', required: true, description: 'Unique plan ID (e.g. "PLAN-01")' },
+      title: { type: 'string', required: true, description: 'Descriptive title of workflow or project' },
       description: { type: 'string', required: false, description: 'Sintesi dell\'obiettivo del piano' },
-      status: { type: 'string', required: false, description: '"PENDING_APPROVAL", "IN_PROGRESS", "APPROVED", o "COMPLETED"' },
+      status: { type: 'string', required: false, description: '"PENDING_APPROVAL", "IN_PROGRESS", "APPROVED", or "COMPLETED"' },
       tasks: {
         type: 'array',
         required: true,
-        description: 'Array di task sequenziali: [{ id: "TASK-01", title: "...", description: "...", assigned_role: "curator"|"auditor"|"engineer"|"osint", runner: "native"|"python"|"expo"|"go"|"rust", deliverable_file: ".dsh/tasks/task_01_result.md" }]'
+        description: 'Sequential task list: [{ id: "TASK-01", title: "...", description: "...", assigned_role: "curator"|"auditor"|"engineer"|"osint", runner: "native"|"python"|"expo"|"go"|"rust", deliverable_file: ".dsh/tasks/task_01_result.md" }]'
       },
       markdown_plan: {
         type: 'string',
         required: false,
-        description: 'Contenuto Markdown formale ed esaustivo da salvare in .dsh/tasks/00_master_plan.md (Executive Summary, DAG architetturale, ruoli, gate).'
+        description: 'Comprehensive formal Markdown content saved to .dsh/tasks/00_master_plan.md (Executive Summary, Architectural DAG, roles, gates).'
       }
     },
     output: {
@@ -337,7 +337,7 @@ export function apply(ctx) {
         plan_file: MASTER_PLAN_MD,
         plan_json: PLAN_JSON,
         tasks_count: formattedTasks.length,
-        message: 'Master Plan salvato su disco (.dsh/tasks/00_master_plan.md) e Plan Sidebar (.dsh/tasks/plan.json) sincronizzata con successo.'
+        message: 'Master Plan saved to disk (.dsh/tasks/00_master_plan.md) and Plan Sidebar (.dsh/tasks/plan.json) synchronized successfully.'
       };
     }
   });
@@ -347,10 +347,10 @@ export function apply(ctx) {
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_triage',
-    description: 'Esegue il triage di complessità e il Gate di Trivialità di The Architect. Se la richiesta è complessa o contiene /architect, propone e pre-inizializza il Master Plan.',
+    description: 'Executes complexity triage and Triviality Gate. If prompt is multi-step or contains /architect, prepares Master Plan initialization.',
     parameters: {
       user_request: { type: 'string', required: true, description: 'La richiesta espressa dall\'utente' },
-      force_mode: { type: 'string', required: false, description: 'Forza la modalità: "fast", "deep", o "auto"' }
+      force_mode: { type: 'string', required: false, description: 'Force triage mode: "fast", "deep", or "auto"' }
     },
     output: {
       schema: {
@@ -380,14 +380,14 @@ export function apply(ctx) {
         }
       }
 
-      // Richiesta complessa: propone la compilazione del Master Plan
+      // Complex request: prompts Master Plan creation
       return {
         path: 'MULTI_TASK_PLAN',
         trivial: false,
-        reason: 'Compito multi-fase o architettura complessa rilevata.',
+        reason: 'Multi-phase task or complex architecture detected.',
         plan_file: MASTER_PLAN_MD,
         plan_json: PLAN_JSON,
-        recommendation: 'Invoca immediatamente il tool "architect_create_plan" definendo i task sequenziali e le specifiche per popolare la Plan Sidebar e salvare .dsh/tasks/00_master_plan.md.'
+        recommendation: "Immediately invoke 'architect_create_plan' defining sequential tasks and specifications to populate Plan Sidebar and save .dsh/tasks/00_master_plan.md."
       };
     }
   });
@@ -397,14 +397,14 @@ export function apply(ctx) {
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_handoff_brief',
-    description: 'Genera il brief di handoff (.dsh/tasks/task_XX_brief.md) per un sub-agente vergine, iniettando L0 (C1-C5) e la Skill L2.',
+    description: 'Generates zero-token handoff brief (.dsh/tasks/task_XX_brief.md) for worker sub-agent, injecting L0 (C1-C5) and assigned L2 Skill.',
     parameters: {
-      task_id: { type: 'string', required: true, description: 'Identificativo task, es. TASK-01' },
-      assigned_role: { type: 'string', required: true, description: 'Nome della skill da assegnare (es. curator, auditor, quiz_master, mckinsey-structured)' },
-      objective: { type: 'string', required: true, description: 'Obiettivo chiaro e criteri di accettazione del task' },
-      input_files: { type: 'array', required: false, description: 'Elenco file di input su disco che il sub-agente deve leggere' },
-      output_file: { type: 'string', required: true, description: 'File Markdown in cui depositare il risultato' },
-      domain_runner: { type: 'string', required: false, description: 'Runner isolato consigliato: "expo", "go", "rust", "python" o "native"' }
+      task_id: { type: 'string', required: true, description: 'Task identifier, e.g. TASK-01' },
+      assigned_role: { type: 'string', required: true, description: 'Assigned skill name (e.g. curator, auditor, quiz_master, mckinsey-structured)' },
+      objective: { type: 'string', required: true, description: 'Clear goal and acceptance criteria for the task' },
+      input_files: { type: 'array', required: false, description: 'Array of disk input filepaths authorized for worker agent' },
+      output_file: { type: 'string', required: true, description: 'Target Markdown file to write result to' },
+      domain_runner: { type: 'string', required: false, description: 'Recommended runner environment: "expo", "go", "rust", "python", or "native"' }
     },
     output: {
       schema: {
@@ -419,40 +419,40 @@ export function apply(ctx) {
     execute: async (args) => {
       const briefFile = path.join(TASKS_DIR, `task_${args.task_id}_brief.md`);
 
-      // Lettura skill assegnata da .dsh/skills
+      // Read assigned skill from .dsh/skills
       let skillContent = '';
       const skillPath = path.join(SKILLS_DIR, `${args.assigned_role}.skill.md`);
       try {
         skillContent = await fs.readFile(skillPath, 'utf8');
       } catch {
-        // Fallback su .md generico
+        // Fallback to generic .md
         try {
           skillContent = await fs.readFile(path.join(SKILLS_DIR, `${args.assigned_role}.md`), 'utf8');
         } catch {
-          skillContent = `Ruolo specialistico: ${args.assigned_role}. Opera come esecutore rigido delle regole di contesto.`;
+          skillContent = `Specialist role: ${args.assigned_role}. Operate strictly within defined context boundaries.`;
         }
       }
 
-      // Costruzione del Brief con separazione rigida L0 / L1 / L2
+      // Construct brief with rigid L0 / L1 / L2 boundary
       const briefMarkdown = `# 📋 Task Brief: ${args.task_id}
 
 ## L0 - Kernel Invariants & Role Contract (C1–C5)
-- **C1 (Routing Fallback):** Se la richiesta fuoriesce dal perimetro assegnato, fermati e ripiega sulla mappa di sistema.
+- **C1 (Routing Fallback):** If request falls outside scope, stop and fall back to system map.
 - **C2 (Handoff State):** Scrivi tutto il deliverable in \`${args.output_file}\`. All'avvio leggi solo i file di input dichiarati.
 - **C3 (Code-as-Action):** Per manipolazioni pesanti, scrivi script in \`tmp/\`, eseguili e distruggili (Active Oblivion).
-- **C4 (Territorial Confinement):** Rispetta rigidamente i confini della directory assegnata dal DAG; non scrivere altrove.
-- **C5 (Iterative Guardrails):** Massimo 3 tentativi consecutivi di autocorrezione con il Linter.
+- **C4 (Territorial Confinement):** Strictly respect directory boundaries assigned by DAG; write nowhere else.
+- **C5 (Iterative Guardrails):** Maximum 3 consecutive self-correction retries with Linter.
 
 ---
 
 ## L1 - Operational Brief
 - **Task ID:** ${args.task_id}
-- **Assegnatario:** ${args.assigned_role}
-- **Runner Consigliato:** ${args.domain_runner || 'native'}
-- **File di Input Autorizzati:** ${(args.input_files || []).join(', ') || 'Nessuno (avvio pulito)'}
-- **File di Output Obbligatorio:** ${args.output_file}
+- **Assignee:** ${args.assigned_role}
+- **Recommended Runner:** ${args.domain_runner || 'native'}
+- **Authorized Input Files:** ${(args.input_files || []).join(', ') || 'None (fresh start)'}
+- **Target Output File:** ${args.output_file}
 
-### Obiettivo e Criteri di Accettazione
+### Goal & Acceptance Criteria
 ${args.objective}
 
 ---
@@ -475,10 +475,10 @@ ${skillContent}
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_linter_audit',
-    description: 'Esegue il linter deterministico AST/Regex su un file di deliverable con gestione del loop di ripristino (max 3 retry).',
+    description: 'Runs deterministic AST/Regex linter against deliverable file with retry-loop control (max 3 retries).',
     parameters: {
-      result_file: { type: 'string', required: true, description: 'Percorso del file Markdown del risultato da auditare' },
-      attempt_number: { type: 'number', required: false, description: 'Numero del tentativo corrente (1, 2 o 3)' }
+      result_file: { type: 'string', required: true, description: 'Path of result Markdown file to audit' },
+      attempt_number: { type: 'number', required: false, description: 'Current attempt count (1, 2, or 3)' }
     },
     output: {
       schema: {
@@ -504,7 +504,7 @@ ${skillContent}
         return {
           status: 'ERROR',
           passed: false,
-          issues: [`Impossibile leggere il file ${args.result_file}: ${err.message}`]
+          issues: [`Unable to read file ${args.result_file}: ${err.message}`]
         };
       }
 
@@ -515,15 +515,15 @@ ${skillContent}
           status: 'PASSED',
           passed: true,
           bullet_ratio: audit.bulletRatio,
-          message: 'Deliverable conforme a tutte le invarianti formali e stilistiche.'
+          message: 'Deliverable conforms to all formal and stylistic invariants.'
         };
       }
 
-      // Se ci sono violazioni:
+      // If lint violations exist:
       if (attempt < 3) {
-        const feedback = `LINTER AUDIT FALLITO (Tentativo ${attempt}/3):\n` +
+        const feedback = `LINTER AUDIT FAILED (Attempt ${attempt}/3):\n` +
           audit.issues.map((iss, i) => `${i + 1}. ${iss}`).join('\n') +
-          '\n\nRiscrivi immediatamente il deliverable sanando queste violazioni.';
+          '\n\nImmediately rewrite deliverable resolving these violations.';
 
         return {
           status: 'RETRY_REQUIRED',
@@ -535,7 +535,7 @@ ${skillContent}
         };
       }
 
-      // Se ha raggiunto il 3° fallimento
+      // If reached 3rd retry failure
       return {
         status: 'FAILED_LINT',
         passed: false,
@@ -554,8 +554,8 @@ ${skillContent}
     name: 'docker_runner_exec',
     description: 'Esegue comandi di test e compilazione all\'interno dei container runner dedicati (Go, Rust, Expo, Python) via socket Docker.',
     parameters: {
-      runner: { type: 'string', required: true, description: 'Ambiente di destinazione: "go", "rust", "expo", "python"' },
-      cmd: { type: 'array', required: true, description: 'Comando da eseguire come array di stringhe, es: ["go", "test", "./..."]' },
+      runner: { type: 'string', required: true, description: 'Target environment: "go", "rust", "expo", "python"' },
+      cmd: { type: 'array', required: true, description: 'Command array to execute, e.g. ["go", "test", "./..."]' },
       working_dir: { type: 'string', required: false, description: 'Directory di lavoro all\'interno del container' }
     },
     output: {
@@ -574,7 +574,7 @@ ${skillContent}
       const runnerKey = args.runner.toLowerCase();
       const containerName = `dsh_runner_${runnerKey}`;
 
-      // Immagini per fallback effimero
+      // Ephemeral fallback container images
       const runnerImages = {
         go: 'golang:1.24-alpine',
         rust: 'rust:1.85-slim',
@@ -582,18 +582,18 @@ ${skillContent}
         expo: 'node:22-alpine'
       };
 
-      // Verifica presenza socket Docker
+      // Check Docker socket availability
       try {
         await fs.access(DOCKER_SOCKET);
       } catch {
         return {
           status: 'SKIPPED',
-          error: `Socket Docker (${DOCKER_SOCKET}) non disponibile. Esecuzione fallback bare-metal richiesta.`
+          error: `Docker socket (${DOCKER_SOCKET}) not available. Bare-metal fallback required.`
         };
       }
 
       try {
-        // 1. Verifica se il container preconfigurato esiste e se è avviato
+        // 1. Check if configured container exists and is running
         const inspectRes = await dockerSocketRequest('GET', `/containers/${containerName}/json`);
         const containerExists = inspectRes.status === 200;
         let startedOnDemand = false;
@@ -601,12 +601,12 @@ ${skillContent}
         if (containerExists) {
           const isRunning = inspectRes.data && inspectRes.data.State && inspectRes.data.State.Running;
           if (!isRunning) {
-            // Avvio on-demand del container spento
+            // Start idle container on-demand
             await dockerSocketRequest('POST', `/containers/${containerName}/start`);
             startedOnDemand = true;
           }
 
-          // 2. Crea ed esegui Exec Instance
+          // 2. Create and start Exec Instance
           const execConfig = {
             AttachStdout: true,
             AttachStderr: true,
@@ -617,17 +617,17 @@ ${skillContent}
 
           const createRes = await dockerSocketRequest('POST', `/containers/${containerName}/exec`, execConfig);
           if (createRes.status !== 201 || !createRes.data.Id) {
-            throw new Error(`Impossibile creare exec in ${containerName}: ${JSON.stringify(createRes.data)}`);
+            throw new Error(`Failed to create exec instance in ${containerName}: ${JSON.stringify(createRes.data)}`);
           }
 
           const execId = createRes.data.Id;
           const startRes = await dockerSocketRequest('POST', `/exec/${execId}/start`, { Detach: false, Tty: false });
 
-          // 3. Verifica ExitCode
+          // 3. Inspect exit code
           const execInspect = await dockerSocketRequest('GET', `/exec/${execId}/json`);
           const exitCode = execInspect.data.ExitCode !== undefined ? execInspect.data.ExitCode : 0;
 
-          // 4. Se è stato avviato on-demand, arrestalo subito per azzerare l'impronta di RAM
+          // 4. If started on-demand, stop it immediately to reclaim RAM
           if (startedOnDemand) {
             await dockerSocketRequest('POST', `/containers/${containerName}/stop`).catch(() => {});
           }
@@ -639,7 +639,7 @@ ${skillContent}
             output: typeof startRes.data === 'string' ? startRes.data : JSON.stringify(startRes.data)
           };
         } else {
-          // Nessun container preconfigurato: esecuzione effimera (docker run --rm)
+          // No configured container found: run ephemeral container (docker run --rm)
           const image = runnerImages[runnerKey] || 'alpine:latest';
           const ephemeralName = `dsh_ephemeral_${runnerKey}_${Date.now()}`;
 
@@ -654,17 +654,17 @@ ${skillContent}
           });
 
           if (createEphemeral.status !== 201) {
-            throw new Error(`Creazione container effimero fallita: ${JSON.stringify(createEphemeral.data)}`);
+            throw new Error(`Failed to create ephemeral container: ${JSON.stringify(createEphemeral.data)}`);
           }
 
           const ephemeralId = createEphemeral.data.Id;
           await dockerSocketRequest('POST', `/containers/${ephemeralId}/start`);
 
-          // Attende completamento
+          // Wait for completion
           const waitRes = await dockerSocketRequest('POST', `/containers/${ephemeralId}/wait`);
           const exitCode = waitRes.data.StatusCode || 0;
 
-          // Recupera output logs
+          // Fetch stdout/stderr logs
           const logsRes = await dockerSocketRequest('GET', `/containers/${ephemeralId}/logs?stdout=true&stderr=true`);
 
           return {
@@ -678,7 +678,7 @@ ${skillContent}
         return {
           container: containerName,
           exit_code: 1,
-          error: `Errore durante l'esecuzione su runner: ${err.message}`
+          error: `Error during runner execution: ${err.message}`
         };
       }
     }
@@ -689,10 +689,10 @@ ${skillContent}
   // --------------------------------------------------------------------------
   ctx.tools.register({
     name: 'architect_toggle_capabilities',
-    description: 'Gestisce i toggle di runtime per attivare o disattivare dinamicamente le capacità (Dynamic Tool Pruning).',
+    description: 'Manages runtime capability toggles to dynamically enable or prune tool definitions (Dynamic Tool Pruning).',
     parameters: {
-      action: { type: 'string', required: true, description: '"get" per leggere lo stato, "set" per aggiornare' },
-      toggles: { type: 'object', required: false, description: 'Oggetto con chiavi booleane (the_architect, graphify_vault, deep_osint, software_factory, persistent_memory)' }
+      action: { type: 'string', required: true, description: '"get" to read current state, "set" to update' },
+      toggles: { type: 'object', required: false, description: 'Object with boolean keys (the_architect, graphify_vault, deep_osint, software_factory, persistent_memory)' }
     },
     output: {
       schema: {
@@ -716,12 +716,12 @@ ${skillContent}
         await fs.writeFile(CONFIG_FILE, JSON.stringify(current, null, 2), 'utf8');
       }
 
-      // Calcola i token stimati risparmiati per ogni modulo spento
+      // Estimate saved tokens for disabled capability modules
       let tokensSaved = 0;
-      if (!current.software_factory) tokensSaved += 800; // schemi runner docker rimossi
-      if (!current.deep_osint) tokensSaved += 600;       // schemi web search rimossi
-      if (!current.graphify_vault) tokensSaved += 500;   // schemi vault linking rimossi
-      if (!current.the_architect) tokensSaved += 1200;   // meta-plan orchestrator rimosso
+      if (!current.software_factory) tokensSaved += 800; // docker runner schemas pruned
+      if (!current.deep_osint) tokensSaved += 600;       // web search schemas pruned
+      if (!current.graphify_vault) tokensSaved += 500;   // vault linking schemas pruned
+      if (!current.the_architect) tokensSaved += 1200;   // meta-plan orchestrator pruned
 
       return {
         capabilities: current,
@@ -740,7 +740,7 @@ ${skillContent}
       name: 'architect',
       description: 'Avvia l\'orchestrazione e la pianificazione autonoma con The Architect',
       input: {
-        hint: '<descrizione del workflow o architettura>',
+        hint: '<project or workflow description>',
         images: false
       },
       handler: async (invocation) => {
@@ -751,10 +751,10 @@ ${skillContent}
             text: [
               '🏛️ **The Architect — Autonomous Architecture Engine**',
               '',
-              '**Uso:** `/architect <descrizione del workflow o architettura>`',
-              '**Esempio:** `/architect Pianifica un workflow per controllare tutte le mattine le notizie di ecologia e produrre un bollettino TL;DR`',
+              '**Uso:** `/architect <project or workflow description>`',
+              '**Example:** `/architect Design an automated morning pipeline to monitor ecology news and produce daily summaries`',
               '',
-              'Il comando genera automaticamente il Master Plan formale in `.dsh/tasks/00_master_plan.md` e sincronizza la **Plan Sidebar** con le schede dei task e i controlli del Gate.'
+              'Generates formal Master Plan in `.dsh/tasks/00_master_plan.md` and synchronizes the **Plan Sidebar** with live task cards and Gate controls.'
             ].join('\n')
           };
         }
@@ -764,32 +764,32 @@ ${skillContent}
             content: [{
               type: 'text',
               text: [
-                `[THE ARCHITECT DIRECTIVE - PIANIFICAZIONE RICHIESTA]`,
-                `L'utente ha richiesto formalmente tramite /architect la pianificazione del seguente obiettivo:`,
+                `[THE ARCHITECT DIRECTIVE - PLANNING REQUESTED]`,
+                `User requested formal project planning via /architect for objective:`,
                 `"${raw}"`,
                 ``,
-                `AZIONI OBBLIGATORIE:`,
-                `1. NON rispondere con solo testo o spiegazioni discorsive in chat.`,
-                `2. Invoca SUBITO il tool 'architect_create_plan' strutturando il piano:`,
+                `MANDATORY ACTIONS:`,
+                `1. NEVER reply with conversational plain text alone.`,
+                `2. IMMEDIATELY invoke tool 'architect_create_plan' with structured parameters:`,
                 `   - plan_id: "PLAN-01"`,
-                `   - title: titolo descrittivo del workflow`,
-                `   - description: sintesi dell'obiettivo`,
+                `   - title: descriptive title of workflow`,
+                `   - description: summary of the objective`,
                 `   - status: "PENDING_APPROVAL"`,
-                `   - tasks: suddivisione rigorosa in task sequenziali (TASK-01, TASK-02, ...), ciascuno con { id, title, description, assigned_role, runner, deliverable_file, status: "PENDING" }`,
-                `   - markdown_plan: documento Markdown completo per .dsh/tasks/00_master_plan.md con Executive Summary, DAG architetturale, specifiche deliverable e Gate 1-3.`,
-                `3. Questo salverà il Master Plan su disco e aggiornerà istantaneamente la Plan Sidebar nella UI.`,
-                `4. Presenta all'utente una sintesi chiara del piano generato e richiedi l'approvazione del Gate 1 per iniziare l'esecuzione.`
+                `   - tasks: rigorous sequential tasks (TASK-01, TASK-02, ...), each with { id, title, description, assigned_role, runner, deliverable_file, status: "PENDING" }`,
+                `   - markdown_plan: complete formal Markdown plan for .dsh/tasks/00_master_plan.md (Executive Summary, DAG, deliverable specs, and Gate 1-3).`,
+                `3. This saves Master Plan to disk and immediately synchronizes the Plan Sidebar in the web UI.`,
+                `4. Present an executive summary and request Gate 1 approval before proceeding.`
               ].join('\n')
             }],
             source: { kind: 'user' }
           }));
         } catch (err) {
-          console.error(`[the-architect] Errore durante l'invio della direttiva agent.followup: ${err.message}`);
+          console.error(`[the-architect] Error dispatching agent.followup directive: ${err.message}`);
         }
 
         return {
           kind: 'success',
-          text: `🏛️ **The Architect**: Ricevuta richiesta di pianificazione per: "${raw}". Inizializzazione del Master Plan e aggiornamento della Plan Sidebar in corso...`
+          text: `🏛️ **The Architect**: Planning requested for: "${raw}". Initializing Master Plan and synchronizing Plan Sidebar...`
         };
       }
     });
@@ -819,7 +819,7 @@ ${skillContent}
         ].join('\n')
       });
     } catch (err) {
-      console.error(`[the-architect] Impossibile registrare la sezione systemPrompt: ${err.message}`);
+      console.error(`[the-architect] Failed to register systemPrompt section: ${err.message}`);
     }
   });
 }
