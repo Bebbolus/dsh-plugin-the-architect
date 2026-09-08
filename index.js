@@ -411,6 +411,94 @@ export function apply(ctx) {
   });
 
   // --------------------------------------------------------------------------
+  // TOOL 1C: architect_update_task (Update Task Status & Preview in Real-Time)
+  // --------------------------------------------------------------------------
+  ctx.tools.register({
+    name: 'architect_update_task',
+    description: 'Updates the progress, status, deliverable preview, or error message of a specific task in the Plan Sidebar and master plan. Worker agents MUST invoke this when starting ("RUNNING") or finishing ("COMPLETED") a task.',
+    parameters: {
+      session_id: { type: 'string', required: false, description: 'Optional session identifier' },
+      task_id: { type: 'string', required: true, description: 'Task ID to update, e.g. "TASK-01", "TASK-02"' },
+      status: { type: 'string', required: true, description: 'New status: "PENDING", "RUNNING", "COMPLETED", "RETRY", or "FAILED"' },
+      preview_content: { type: 'string', required: false, description: 'Optional short summary or excerpt of the deliverable' },
+      error_message: { type: 'string', required: false, description: 'Optional error description if task failed' }
+    },
+    output: {
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          task_id: { type: 'string' },
+          status: { type: 'string' },
+          progress_percent: { type: 'number' },
+          message: { type: 'string' }
+        }
+      },
+      render: formatOutputContent
+    },
+    execute: async (args, exec) => {
+      const sessionId = args.session_id || exec?.agent?.session?.id || exec?.session?.id;
+      let planData = null;
+      let loadedFromFile = PLAN_JSON;
+
+      if (sessionId) {
+        const sessionFile = path.join(TASKS_DIR, 'plans', `${sessionId}.json`);
+        try {
+          const raw = await fs.readFile(sessionFile, 'utf8');
+          planData = JSON.parse(raw);
+          loadedFromFile = sessionFile;
+        } catch {}
+      }
+
+      if (!planData) {
+        try {
+          const raw = await fs.readFile(PLAN_JSON, 'utf8');
+          planData = JSON.parse(raw);
+          loadedFromFile = PLAN_JSON;
+        } catch {
+          return { success: false, message: 'No active plan found to update.' };
+        }
+      }
+
+      const tasks = planData.tasks || [];
+      const targetTask = tasks.find(t => t.id === args.task_id);
+      if (!targetTask) {
+        return { success: false, message: `Task ${args.task_id} not found in plan.` };
+      }
+
+      targetTask.status = args.status;
+      if (args.preview_content !== undefined) targetTask.preview_content = args.preview_content;
+      if (args.error_message !== undefined) targetTask.error_message = args.error_message;
+      planData.updated_at = new Date().toISOString();
+
+      const completedCount = tasks.filter(t => t.status === 'COMPLETED').length;
+      if (completedCount === tasks.length && tasks.length > 0) {
+        planData.status = 'COMPLETED';
+      } else if (tasks.some(t => t.status === 'RUNNING' || t.status === 'IN_PROGRESS')) {
+        planData.status = 'IN_PROGRESS';
+      }
+
+      // Write back to both session plan and global plan
+      if (sessionId) {
+        const plansDir = path.join(TASKS_DIR, 'plans');
+        await fs.mkdir(plansDir, { recursive: true });
+        await fs.writeFile(path.join(plansDir, `${sessionId}.json`), JSON.stringify(planData, null, 2), 'utf8');
+      }
+      await fs.writeFile(PLAN_JSON, JSON.stringify(planData, null, 2), 'utf8');
+
+      const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+      return {
+        success: true,
+        task_id: args.task_id,
+        status: args.status,
+        progress_percent: progress,
+        message: `Task ${args.task_id} status updated to ${args.status} (${progress}% completed).`
+      };
+    }
+  });
+
+
+  // --------------------------------------------------------------------------
   // TOOL 2: architect_triage
   // --------------------------------------------------------------------------
   ctx.tools.register({
@@ -878,17 +966,41 @@ ${skillContent}
         name: 'the-architect:directives',
         order: 10,
         text: [
-          '## THE ARCHITECT — OPERATIONAL DIRECTIVES & CAPABILITY SYNTHESIS',
-          'You are augmented with The Architect cognitive runtime.',
-          'CRITICAL INVARIANTS: Whenever the user mentions "/architect", asks to design or plan a workflow, create a new agent or skill, or structure a multi-step pipeline:',
-          '1. NEVER reply with conversational plain text alone.',
-          '2. CAPABILITY INTROSPECTION: Analyze whether existing tools, agents, or .dsh/skills already cover the request.',
-          '3. EXTERNAL EVALUATION & COMPONENT HARVESTING: When new capabilities are needed, search or evaluate potential plugins/skills (GitHub, claudemarketplaces.com, dsh-plugin.org):',
-          '   - Critically assess fitness: does the external plugin fit the exact user need without introducing security risks or context bloat?',
-          '   - Component Harvesting: If imperfect or oversized, harvest only the essential building blocks (regex, prompt templates, scripts) to synthesize a clean, bespoke skill or workflow.',
-          '   - If offline or no suitable resource exists, engineer the skill from first principles adhering to ICM invariants.',
-          '4. MASTER PLAN & SIDEBAR: Decompose into sequential, verified tasks and immediately invoke the tool "architect_create_plan" to populate .dsh/tasks/00_master_plan.md and sync the Plan Sidebar.',
-          '5. HANDOFF & COMPLETION: Present the executive summary for Gate 1 approval. Once verified and approved, The Architect completes its mission and cedes execution to worker agents without requiring manual toggle switching.'
+          '<the_architect_runtime version="3.0" protocol="MWP-ICM">',
+          '  <role_identity>',
+          '    You are The Architect: Senior Systems Orchestrator and Autonomous State Compiler.',
+          '    All generated plans, code, deliverables, and operational reasoning MUST be in ENGLISH unless the user explicitly requests otherwise.',
+          '  </role_identity>',
+          '  <hard_invariants>',
+          '    <invariant id="H1_NO_CONVERSATIONAL_BYPASS">',
+          '      NEVER reply with conversational plain text alone when multi-phase work, architecture, planning, or /architect is requested.',
+          '      MUST invoke `architect_create_plan` immediately with verified sequential tasks.',
+          '    </invariant>',
+          '    <invariant id="H2_TASK_STATE_TRACKING">',
+          '      WHEN beginning any task: MUST invoke `architect_update_task` with { task_id, status: "RUNNING" } before any work.',
+          '      WHEN deliverable is verified on disk: MUST invoke `architect_update_task` with { task_id, status: "COMPLETED", preview_content } immediately.',
+          '    </invariant>',
+          '    <invariant id="H3_CONTEXT_OFFLOADING">',
+          '      PROHIBITED: Dumping entire raw files (>50KB) or full directories into chat context.',
+          '      MANDATORY: Use `.dsh/tmp/` for ephemeral Python extractors, index tables (`.dsh/tmp/index_map.json`), and section slices.',
+          '      Active Oblivion: Clean or overwrite temporary files once the final deliverable (.dsh/tasks/task_XX_result.md) is compiled.',
+          '    </invariant>',
+          '    <invariant id="H4_CAPABILITY_SYNTHESIS">',
+          '      When new tools/skills are required: introspect existing tools first. If harvesting external components, isolate minimal building blocks and strip all unneeded dependencies.',
+          '    </invariant>',
+          '    <invariant id="H5_ZERO_TOKEN_HANDOFF">',
+          '      Operatives communicate exclusively via filesystem artifacts (.dsh/tasks/task_XX_result.md). Never rely on volatile conversation history across task boundaries.',
+          '    </invariant>',
+          '  </hard_invariants>',
+          '  <tool_dispatch_matrix>',
+          '    <trigger match="planning|architecture|pipeline|workflow|/architect" action="MUST_CALL: architect_create_plan" />',
+          '    <trigger match="start_task" action="MUST_CALL: architect_update_task(status: RUNNING)" />',
+          '    <trigger match="finish_task" action="MUST_CALL: architect_update_task(status: COMPLETED)" />',
+          '    <trigger match="lint_deliverable" action="MUST_CALL: architect_linter_audit" />',
+          '    <trigger match="container_runner" action="MUST_CALL: docker_runner_exec" />',
+          '    <trigger match="reset_plan" action="MUST_CALL: architect_clear_plan" />',
+          '  </tool_dispatch_matrix>',
+          '</the_architect_runtime>'
         ].join('\n')
       });
     } catch (err) {
