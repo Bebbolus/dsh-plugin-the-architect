@@ -608,6 +608,16 @@ export function apply(ctx) {
 - **Authorized Input Files:** ${(args.input_files || []).join(', ') || 'None (fresh start)'}
 - **Target Output File:** ${args.output_file}
 
+### Mandatory Deliberation (<scratchpad>)
+Before modifying or creating any deliverable, execute mandatory deliberation:
+\`\`\`xml
+<scratchpad>
+[THINK]: Analyze authorized inputs, dependencies, and root intent...
+[OBSERVE]: Verify source URLs, conceptual atomicity (no compound titles), and index.md MOC references...
+[DECISION]: Compile surgical diff or atomic deliverable strictly to ${args.output_file}...
+</scratchpad>
+\`\`\`
+
 ### Goal & Acceptance Criteria
 ${args.objective}
 
@@ -615,6 +625,7 @@ ${args.objective}
 
 ## L2 - Procedural Skill (${args.assigned_role})
 ${skillContent}
+
 `;
 
       await fs.writeFile(briefFile, briefMarkdown, 'utf8');
