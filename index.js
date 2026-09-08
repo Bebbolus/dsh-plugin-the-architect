@@ -23,6 +23,11 @@ const SEEDS_DIR = path.join(__dirname, 'seeds');
 const CONFIG_FILE = path.join(WORKSPACE_DIR, '.dsh', 'capabilities.json');
 const DOCKER_SOCKET = '/var/run/docker.sock';
 
+function formatOutputContent(_args, value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return [{ type: 'text', text }];
+}
+
 // Default capability toggles
 const DEFAULT_CAPABILITIES = {
   the_architect: true,
@@ -344,11 +349,12 @@ export function apply(ctx) {
           message: { type: 'string' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
-    execute: async (args) => {
+    execute: async (args, exec) => {
+      const sessionId = args.session_id || exec?.agent?.session?.id || exec?.session?.id;
       const { payload, formattedTasks } = await syncPlanState({
-        session_id: args.session_id,
+        session_id: sessionId,
         plan_id: args.plan_id,
         title: args.title,
         description: args.description,
@@ -386,7 +392,7 @@ export function apply(ctx) {
           message: { type: 'string' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
     execute: async (args) => {
       if (args?.session_id) {
@@ -426,7 +432,7 @@ export function apply(ctx) {
           recommendation: { type: 'string' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
     execute: async (args) => {
       const mode = args.force_mode || 'auto';
@@ -476,7 +482,7 @@ export function apply(ctx) {
           status: { type: 'string' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
     execute: async (args) => {
       const briefFile = path.join(TASKS_DIR, `task_${args.task_id}_brief.md`);
@@ -555,7 +561,7 @@ ${skillContent}
           feedback_prompt: { type: 'string' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
     execute: async (args) => {
       const attempt = args.attempt_number || 1;
@@ -635,7 +641,7 @@ ${skillContent}
           stderr: { type: 'string' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
     execute: async (args) => {
       const runnerKey = args.runner.toLowerCase();
@@ -769,7 +775,7 @@ ${skillContent}
           tokens_saved_estimate: { type: 'number' }
         }
       },
-      render: (v) => JSON.stringify(v, null, 2)
+      render: formatOutputContent
     },
     execute: async (args) => {
       let current = { ...DEFAULT_CAPABILITIES };
